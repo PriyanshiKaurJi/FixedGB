@@ -1,132 +1,141 @@
-const fetch = require("node-fetch");
-const fs = require("fs");
+const axios = require("axios");
+const fs = require("fs-extra");
 const path = require("path");
-const ytSearch = require("yt-search");
+
+const SPOTIFY_CLIENT_ID = "41dd52e608ee4c4ba8b196b943db9f73";
+const SPOTIFY_CLIENT_SECRET = "5c7b438712b04d0a9fe2eaae6072fa16";
 
 module.exports = {
-    config: {
-        name: "sing",
-        version: "1.0",
-        author: "Priyanshi Kaur",
-        description: {
-            en: "Download music from YouTube with advanced search"
-        },
-        category: "media",
-        guide: { 
-            en: "{pn} <song name> [audio/video]" 
-        },
-        role: 0,
-        countDown: 5
+  config: {
+    name: "spotify",
+    aliases: ["sing"],
+    version: "2.2.0",
+    author: "Priyanshi Kaur",
+    role: 0,
+    countDown: 5,
+    shortDescription: {
+      en: "Search for songs or artists on Spotify"
     },
-
-    onStart: async function ({ api, message, event, args }) {
-        const uid = event.senderID;
-        let songName = args.join(" ");
-        let type = "audio";
-
-        if (args[args.length - 1] === "video") {
-            type = "video";
-            songName = args.slice(0, -1).join(" ");
-        }
-
-        try {
-            api.setMessageReaction("⌛", event.messageID, () => {}, true);
-
-            const searchResults = await ytSearch(songName);
-            if (!searchResults.videos.length) {
-                return message.reply("No music found for your request.");
-            }
-
-            const topResult = searchResults.videos[0];
-            const videoId = topResult.videoId;
-            const apiKey = "priyansh-here";
-            const apiUrl = `https://priyansh-ai.onrender.com/youtube?id=${videoId}&type=${type}&apikey=${apiKey}`;
-
-            const processingMessage = await message.reply(`🔍 Searching for: ${topResult.title}`);
-
-            const downloadResponse = await fetch(apiUrl);
-            
-            if (!downloadResponse.ok) {
-                throw new Error("Download failed");
-            }
-
-            const responseData = await downloadResponse.json();
-            const downloadUrl = responseData.downloadUrl;
-
-            const mediaResponse = await fetch(downloadUrl);
-            
-            if (!mediaResponse.ok) {
-                throw new Error("Media download failed");
-            }
-
-            const downloadPath = path.join(__dirname, `music_${Date.now()}.${type === 'audio' ? 'mp3' : 'mp4'}`);
-            const audioBuffer = await mediaResponse.buffer();
-            fs.writeFileSync(downloadPath, audioBuffer);
-
-            await message.reply({
-                body: `🎵 Title: ${topResult.title}\nDuration: ${topResult.duration.timestamp}`,
-                attachment: fs.createReadStream(downloadPath)
-            }, () => {
-                fs.unlinkSync(downloadPath);
-                api.unsendMessage(processingMessage.messageID);
-            });
-
-            api.setMessageReaction("✅", event.messageID, () => {}, true);
-
-        } catch (error) {
-            console.error("Music download error:", error);
-            message.reply(`❌ Download failed: ${error.message}`);
-            api.setMessageReaction("❌", event.messageID, () => {}, true);
-        }
+    longDescription: {
+      en: "Search and download songs or find artist information using Spotify API."
     },
-
-    onReply: async function ({ api, message, event, Reply, args }) {
-        const { author, messageID } = Reply;
-
-        if (event.senderID !== author) return;
-
-        try {
-            const additionalQuery = args.join(" ");
-            const searchResults = await ytSearch(additionalQuery);
-
-            if (!searchResults.videos.length) {
-                return message.reply("No additional results found.");
-            }
-
-            const selectedResult = searchResults.videos[0];
-            const videoId = selectedResult.videoId;
-            const apiKey = "priyansh-here";
-            const apiUrl = `https://priyansh-ai.onrender.com/youtube?id=${videoId}&type=audio&apikey=${apiKey}`;
-
-            const downloadResponse = await fetch(apiUrl);
-            
-            if (!downloadResponse.ok) {
-                throw new Error("Download failed");
-            }
-
-            const responseData = await downloadResponse.json();
-            const downloadUrl = responseData.downloadUrl;
-
-            const mediaResponse = await fetch(downloadUrl);
-            
-            if (!mediaResponse.ok) {
-                throw new Error("Media download failed");
-            }
-
-            const downloadPath = path.join(__dirname, `music_${Date.now()}.mp3`);
-            const audioBuffer = await mediaResponse.buffer();
-            fs.writeFileSync(downloadPath, audioBuffer);
-
-            await message.reply({
-                body: `🎵 Next Track: ${selectedResult.title}`,
-                attachment: fs.createReadStream(downloadPath)
-            }, () => {
-                fs.unlinkSync(downloadPath);
-            });
-
-        } catch (error) {
-            console.error("Additional music download error:", error);
-            message.reply(`❌ Download failed: ${error.message}`);
-        }
+    category: "music",
+    guide: {
+      en: "{pn} trackName\n{pn} trackLink\n{pn} artist ArtistName"
     }
+  },
+
+  getSpotifyToken: async function () {
+    const tokenRes = await axios.post(
+      "https://accounts.spotify.com/api/token",
+      new URLSearchParams({
+        grant_type: "client_credentials"
+      }).toString(),
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        }
+      }
+    );
+    return tokenRes.data.access_token;
+  },
+
+  searchSpotifyTrack: async function (trackName, token) {
+    const searchRes = await axios.get("https://api.spotify.com/v1/search", {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { q: trackName, type: "track", limit: 1 }
+    });
+    const tracks = searchRes.data.tracks.items;
+    if (tracks.length === 0) throw new Error("Track not found. Try a different name.");
+    return tracks[0];
+  },
+
+  searchSpotifyArtist: async function (artistName, token) {
+    const searchRes = await axios.get("https://api.spotify.com/v1/search", {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { q: artistName, type: "artist", limit: 1 }
+    });
+    const artists = searchRes.data.artists.items;
+    if (artists.length === 0) throw new Error("Artist not found.");
+    return artists[0];
+  },
+
+  onStart: async function ({ api, event, args }) {
+    try {
+      if (args.length === 0) {
+        return api.sendMessage("Please provide a track name, link, or artist name.", event.threadID, event.messageID);
+      }
+
+      const spotifyToken = await this.getSpotifyToken();
+
+      if (args[0].toLowerCase() === "artist") {
+        const artistName = args.slice(1).join(" ").trim();
+        if (!artistName) return api.sendMessage("Please provide an artist name.", event.threadID, event.messageID);
+
+        const artist = await this.searchSpotifyArtist(artistName, spotifyToken);
+        const artistInfo = `
+🎤 Artist: ${artist.name}
+👥 Followers: ${artist.followers.total.toLocaleString()}
+🎵 Genres: ${artist.genres.join(", ") || "N/A"}
+🔥 Popularity: ${artist.popularity}%
+🔗 Spotify URL: ${artist.external_urls.spotify}
+        `.trim();
+
+        if (artist.images && artist.images.length > 0) {
+          const imageResponse = await axios.get(artist.images[0].url, { responseType: "arraybuffer" });
+          const imagePath = path.join(__dirname, "cache", `${artist.id}.jpg`);
+          await fs.outputFile(imagePath, imageResponse.data);
+
+          await api.sendMessage(
+            {
+              attachment: fs.createReadStream(imagePath),
+              body: artistInfo
+            },
+            event.threadID,
+            event.messageID
+          );
+
+          await fs.remove(imagePath);
+        } else {
+          await api.sendMessage(artistInfo, event.threadID, event.messageID);
+        }
+
+        return;
+      }
+
+      // Handling Track by Name or Link
+      const trackQuery = args.join(" ").trim();
+      const track = trackQuery.startsWith("https://")
+        ? { external_urls: { spotify: trackQuery } } // Direct link, use as is
+        : await this.searchSpotifyTrack(trackQuery, spotifyToken); // Search Spotify API
+
+      const downloadApiUrl = `https://kaiz-apis.gleeze.com/api/spotifydl?url=${encodeURIComponent(track.external_urls.spotify)}`;
+      const response = await axios.get(downloadApiUrl);
+      const songData = response.data;
+
+      const musicPath = path.join(__dirname, "cache", `${Date.now()}-${songData.title}.mp3`);
+      const musicStream = await axios({
+        url: songData.url,
+        method: "GET",
+        responseType: "stream"
+      });
+
+      musicStream.data.pipe(fs.createWriteStream(musicPath)).on("finish", async () => {
+        await api.sendMessage(
+          {
+            attachment: fs.createReadStream(musicPath),
+            body: `🎵 Title: ${songData.title}\n👤 Artist: ${songData.artist}\n🔗 Spotify URL: ${track.external_urls.spotify}`
+          },
+          event.threadID,
+          event.messageID
+        );
+
+        await fs.remove(musicPath); // Clean up the file after sending
+      });
+    } catch (error) {
+      console.error(error);
+      api.sendMessage(`An error occurred: ${error.message}`, event.threadID, event.messageID);
+    }
+  }
 };
