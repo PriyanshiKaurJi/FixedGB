@@ -61,7 +61,7 @@ function extractValidUrls(text) {
 
 async function getVideoMetadata(url) {
   try {
-    const response = await axios.get("https://for-devs.onrender.com/api/savefrom", {
+    const response = await axios.get("http://103.162.185.24:2424/api/savefrom", {
       params: {
         url,
         apikey: "r-e377e74a78b7363636jsj8ffb61ce",
