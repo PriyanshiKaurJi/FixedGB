@@ -34,7 +34,7 @@ module.exports.onStart = async function ({ api, event, message }) {
 
         const response = await axios({
             method: 'get',
-            url: `https://for-devs.onrender.com/api/upscale`,
+            url: `http://103.162.185.24:2424/api/upscale`,
             params: {
                 imageurl: attachment.url,
                 apikey: apiKey
