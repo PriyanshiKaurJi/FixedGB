@@ -34,7 +34,7 @@ module.exports.onStart = async function ({ api, event, message }) {
 
         const response = await axios({
             method: 'get',
-            url: `https://for-devs.onrender.com/api/rbg`,
+            url: `http://103.162.185.24:2424/api/rbg`,
             params: {
                 imageUrl: attachment.url,
                 apikey: apiKey
