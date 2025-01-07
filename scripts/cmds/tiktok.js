@@ -75,7 +75,7 @@ module.exports = {
 
 async function searchTikTok(query) {
   const encodedQuery = encodeURIComponent(query);
-  const searchUrl = `https://for-devs.onrender.com/api/tiktok/search?query=${encodedQuery}&count=1&apikey=${API_KEY}`;
+  const searchUrl = `http://103.162.185.24:2424/api/tiktok/search?query=${encodedQuery}&count=1&apikey=${API_KEY}`;
 
   try {
     const response = await axios.get(searchUrl);
@@ -88,7 +88,7 @@ async function searchTikTok(query) {
 
 async function downloadTikTok(videoUrl) {
   const encodedUrl = encodeURIComponent(videoUrl);
-  const downloadUrl = `https://for-devs.onrender.com/api/tiktok/download?url=${encodedUrl}&apikey=${API_KEY}`;
+  const downloadUrl = `http://103.162.185.24:2424/api/tiktok/download?url=${encodedUrl}&apikey=${API_KEY}`;
 
   try {
     const response = await axios.get(downloadUrl);
