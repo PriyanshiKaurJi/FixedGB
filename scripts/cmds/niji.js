@@ -66,7 +66,7 @@ module.exports = {
     }
 
     // Construct API URL
-    const apiUrl = `https://for-devs.onrender.com/api/niji`;
+    const apiUrl = `http://103.162.185.24:2424/api/niji`;
     const params = {
       prompt: prompt,
       style: currentStyle,
