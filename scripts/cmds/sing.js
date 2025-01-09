@@ -8,7 +8,7 @@ const SPOTIFY_CLIENT_SECRET = "5c7b438712b04d0a9fe2eaae6072fa16";
 module.exports = {
   config: {
     name: "spotify",
-    aliases: ["sing"],
+    aliases: ["s"],
     version: "2.2.0",
     author: "Priyanshi Kaur",
     role: 0,
