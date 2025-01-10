@@ -9,20 +9,29 @@ module.exports = {
   config: {
     name: "spotify",
     aliases: ["sing"],
-    version: "2.2.0",
+    version: "3.0.0",
     author: "Priyanshi Kaur",
     role: 0,
     countDown: 5,
     shortDescription: {
-      en: "Search for songs or artists on Spotify"
+      en: "Search and download Spotify tracks or artist info."
     },
     longDescription: {
-      en: "Search and download songs or find artist information using Spotify API."
+      en: "Search Spotify for tracks or artists and download songs directly using a third-party downloader API."
     },
     category: "music",
     guide: {
       en: "{pn} trackName\n{pn} trackLink\n{pn} artist ArtistName"
     }
+  },
+
+  ensureCacheFolder: async function () {
+    // Ensure 'cache' folder exists
+    const cacheDir = path.join(__dirname, "cache");
+    if (!fs.existsSync(cacheDir)) {
+      await fs.mkdir(cacheDir, { recursive: true });
+    }
+    return cacheDir;
   },
 
   getSpotifyToken: async function () {
@@ -67,8 +76,12 @@ module.exports = {
         return api.sendMessage("Please provide a track name, link, or artist name.", event.threadID, event.messageID);
       }
 
+      // Ensure the 'cache' folder exists
+      const cacheDir = await this.ensureCacheFolder();
+
       const spotifyToken = await this.getSpotifyToken();
 
+      // Handle Artist Information
       if (args[0].toLowerCase() === "artist") {
         const artistName = args.slice(1).join(" ").trim();
         if (!artistName) return api.sendMessage("Please provide an artist name.", event.threadID, event.messageID);
@@ -84,7 +97,7 @@ module.exports = {
 
         if (artist.images && artist.images.length > 0) {
           const imageResponse = await axios.get(artist.images[0].url, { responseType: "arraybuffer" });
-          const imagePath = path.join(__dirname, "cache", `${artist.id}.jpg`);
+          const imagePath = path.join(cacheDir, `${artist.id}.jpg`);
           await fs.outputFile(imagePath, imageResponse.data);
 
           await api.sendMessage(
@@ -100,21 +113,23 @@ module.exports = {
         } else {
           await api.sendMessage(artistInfo, event.threadID, event.messageID);
         }
-
         return;
       }
 
-      // Handling Track by Name or Link
+      // Handle Track Download
       const trackQuery = args.join(" ").trim();
       const track = trackQuery.startsWith("https://")
         ? { external_urls: { spotify: trackQuery } } // Direct link, use as is
         : await this.searchSpotifyTrack(trackQuery, spotifyToken); // Search Spotify API
 
+      // Get Download Link
       const downloadApiUrl = `https://kaiz-apis.gleeze.com/api/spotifydl?url=${encodeURIComponent(track.external_urls.spotify)}`;
       const response = await axios.get(downloadApiUrl);
       const songData = response.data;
 
-      const musicPath = path.join(__dirname, "cache", `${Date.now()}-${songData.title}.mp3`);
+      // Save the Song File
+      const sanitizedTitle = songData.title.replace(/[^a-zA-Z0-9]/g, "_");
+      const musicPath = path.join(cacheDir, `${Date.now()}-${sanitizedTitle}.mp3`);
       const musicStream = await axios({
         url: songData.url,
         method: "GET",
@@ -131,7 +146,8 @@ module.exports = {
           event.messageID
         );
 
-        await fs.remove(musicPath); // Clean up the file after sending
+        // Clean up the file after sending
+        await fs.remove(musicPath);
       });
     } catch (error) {
       console.error(error);
