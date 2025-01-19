@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { GoatWrapper } = require('fca-liane-utils');
 
 module.exports = {
     config: {
@@ -97,4 +98,6 @@ module.exports = {
             api.setMessageReaction("❌", event.messageID, () => {}, true);
         }
     }
-};
+}
+const wrapper = new GoatWrapper(module.exports);
+wrapper.applyNoPrefix({ allowPrefix: true });
