@@ -4,7 +4,7 @@ const { commands, aliases } = global.GoatBot;
 module.exports = {
     config: {
         name: "help",
-        version: "2.1",
+        version: "2.5.0",
         author: "Priyanshi Kaur",
         countDown: 5,
         role: 0,
@@ -16,21 +16,25 @@ module.exports = {
         },
         category: "system",
         guide: {
-            en: "{prefix}help [page | all]\n{prefix}help <command>: Details about a command"
+            en: "{prefix}help [page | all]\n{prefix}help <command>: Details about a specific command"
         },
         priority: 1
     },
 
     langs: {
         en: {
-            commandListHeader: "╭─── 𝗖𝗢𝗠𝗠𝗔𝗡𝗗𝗦 ───",
+            commandListHeader: "╭─── COMMANDS ───",
             commandEntry: "│ ○ %1 - %2",
-            commandFooter: "╰───────────────\n👤 Requested by: %1\n📖 Page: (%2/%3)\n📦 Total commands: %4\nⓘ If you have any questions or need assistance, please contact the developer.",
+            commandFooter: "╰───────────────\n👤 Requested by: %1\n📖 Page: (%2/%3)\n📦 Total commands: %4\nⓘ For assistance, contact the developer.",
             noDescription: "No description available",
             allCommandsHeader: "📜 All available commands:",
             invalidCommand: "❌ Command '%1' not found.",
-            noPermission: "⚠️ You don't have permission to view this command.",
-            allCommandsFooter: "📦 Total commands: %1"
+            allCommandsFooter: "📦 Total commands: %1",
+            commandDetailsHeader: "╭── COMMAND INFO ────⭓",
+            commandDetails: "│ 📝 Name: %1\n│ 📚 Description: %2\n│ 🔧 Version: %3\n│ 👑 Role: %4\n│ ⏰ Cooldown: %5s\n│ ✍️ Author: %6",
+            usageHeader: "├── USAGE ────⭔",
+            commandUsage: "%1",
+            commandDetailsFooter: "╰──────────⭓"
         }
     },
 
@@ -38,11 +42,37 @@ module.exports = {
         const prefix = getPrefix(event.threadID);
         const userName = event.senderName || "User";
 
-        // Get filtered commands based on user's role
         const availableCommands = Array.from(commands.values())
             .filter(cmd => cmd.config.role <= role);
 
-        // If "all" argument is provided, list all commands without descriptions
+        if (args.length === 1 && isNaN(args[0])) {
+            const commandName = args[0].toLowerCase();
+            const command = commands.get(commandName) || aliases.get(commandName);
+
+            if (!command || command.config.role > role) {
+                return message.reply(getLang("invalidCommand", commandName));
+            }
+
+            const cmdConfig = command.config;
+            const description = cmdConfig.shortDescription?.en || cmdConfig.longDescription?.en || getLang("noDescription");
+            const guide = cmdConfig.guide?.en.replace(/{prefix}/g, prefix).replace(/{pn}/g, `${prefix}${cmdConfig.name}`) || "";
+
+            let msg = `${getLang("commandDetailsHeader")}\n`;
+            msg += `${getLang(
+                "commandDetails",
+                cmdConfig.name,
+                description,
+                cmdConfig.version,
+                cmdConfig.role,
+                cmdConfig.countDown,
+                cmdConfig.author
+            )}\n`;
+            msg += `${getLang("usageHeader")}\n${getLang("commandUsage", guide)}`;
+            msg += `\n${getLang("commandDetailsFooter")}`;
+
+            return message.reply(msg);
+        }
+
         if (args[0] === "all") {
             const commandList = availableCommands.map(cmd => cmd.config.name).join(", ");
             return message.reply(
@@ -50,7 +80,6 @@ module.exports = {
             );
         }
 
-        // Paginated display of commands
         const commandsPerPage = 10;
         const page = parseInt(args[0]) || 1;
         const totalPages = Math.ceil(availableCommands.length / commandsPerPage);
