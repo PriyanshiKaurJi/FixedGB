@@ -1,99 +1,72 @@
 const os = require("os");
 const fs = require("fs-extra");
 const process = require("process");
-const child_process = require('child_process');
-const si = require('systeminformation');
+const speedTest = require("speedtest-net");
+
+const startTime = new Date();
 
 function getCPUUsage() {
-  const cpus = os.cpus();
-  const cpuCount = cpus.length;
-  const totalIdle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
-  const totalTick = cpus.reduce((acc, cpu) => 
-    acc + Object.values(cpu.times).reduce((a, b) => a + b), 0);
-  
-  const avgIdle = totalIdle / cpuCount;
-  const avgTotal = totalTick / cpuCount;
-  return (100 - (avgIdle / avgTotal * 100)).toFixed(1);
+  try {
+    const cpus = os.cpus();
+    const cpuCount = cpus.length;
+    const totalIdle = cpus.reduce((acc, cpu) => acc + cpu.times.idle, 0);
+    const totalTick = cpus.reduce(
+      (acc, cpu) => acc + Object.values(cpu.times).reduce((a, b) => a + b),
+      0
+    );
+
+    const avgIdle = totalIdle / cpuCount;
+    const avgTotal = totalTick / cpuCount;
+    const usagePercent = 100 - (avgIdle / avgTotal) * 100;
+
+    return usagePercent.toFixed(1);
+  } catch (error) {
+    return "N/A";
+  }
 }
 
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  try {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  } catch (error) {
+    return "N/A";
+  }
 }
 
-function getNetworkStats() {
-  const interfaces = os.networkInterfaces();
-  let totalRx = 0;
-  let totalTx = 0;
-  
-  Object.values(interfaces).forEach(iface => {
-    iface.forEach(details => {
-      if (details.family === 'IPv4') {
-        totalRx += details.internal ? 0 : details.rx || 0;
-        totalTx += details.internal ? 0 : details.tx || 0;
-      }
-    });
-  });
-  
-  return { rx: formatBytes(totalRx), tx: formatBytes(totalTx) };
-}
-
-function getProcessStats() {
-  const stats = {
-    pid: process.pid,
-    memory: formatBytes(process.memoryUsage().heapUsed),
-    uptime: process.uptime(),
-    nodeVersion: process.version,
-    npmVersion: child_process.execSync('npm -v').toString().trim(),
-    threads: process.env.UV_THREADPOOL_SIZE || 4
-  };
-  return stats;
-}
-
-async function getDiskInfo() {
-  const disk = await si.fsSize();
-  return disk.map(d => ({
-    fs: d.fs,
-    size: formatBytes(d.size),
-    used: formatBytes(d.used),
-    available: formatBytes(d.available),
-    use: d.use.toFixed(1)
-  }));
+async function getNetworkSpeed() {
+  try {
+    const speed = await speedTest({ acceptLicense: true });
+    return {
+      download: formatBytes(speed.download.bandwidth * 8),
+      upload: formatBytes(speed.upload.bandwidth * 8),
+      ping: `${speed.ping.latency.toFixed(1)} ms`,
+    };
+  } catch (error) {
+    console.error("Network speed test failed:", error);
+    return { download: "N/A", upload: "N/A", ping: "N/A" };
+  }
 }
 
 module.exports = {
   config: {
     name: "system",
-    aliases: ["sys"],
-    author: "QueenMaker", // Priyanshi Kaur
-    countDown: 5,
+    aliases: ["sys", "sysinfo"],
+    author: "Priyanshi Kaur v1.14.20",
+    countDown: 0,
     role: 0,
     category: "system",
     longDescription: {
-      en: "Advanced System Information with detailed hardware, software, and performance metrics",
-    },
-    guide: {
-      en: `Use .system [option]
-Options:
-- full: Complete system information
-- hardware: Hardware specifications
-- software: Software and OS details
-- network: Network statistics
-- process: Process information
-- disk: Storage information
-- mini: Minimal overview`
+      en: "Get detailed system metrics, including network speed and other system insights.",
     },
   },
 
   onStart: async function ({ api, event, args, threadsData, usersData }) {
     try {
-      const loadingMessage = await api.sendMessage(
-        "⚡ Gathering system information...", 
-        event.threadID
-      );
+      const checkingMessage = await api.sendMessage("⚙️ Fetching system info...", event.threadID);
 
       const uptimeInSeconds = process.uptime();
       const days = Math.floor(uptimeInSeconds / (3600 * 24));
@@ -106,152 +79,71 @@ Options:
       const freeMem = os.freemem();
       const usedMem = totalMem - freeMem;
       const memoryUsagePercent = ((usedMem / totalMem) * 100).toFixed(1);
-      
+
+      const cpuModel = os.cpus()[0]?.model || "N/A";
+      const cpuSpeed = `${os.cpus()[0]?.speed || "N/A"} MHz`;
+      const platform = os.platform();
+      const osRelease = os.release();
+      const networkInterfaces = Object.values(os.networkInterfaces()).flat()
+        .filter((iface) => iface.family === "IPv4" && !iface.internal);
+
       const allUsers = await usersData.getAll() || [];
       const allThreads = await threadsData.getAll() || [];
       const userCount = allUsers.length;
       const threadCount = allThreads.length;
-      
-      const ping = Date.now() - loadingMessage.timestamp;
+
+      const ping = Date.now() - checkingMessage.timestamp;
+      const networkSpeed = await getNetworkSpeed();
       const pingStatus = ping < 100 ? "🟢" : ping < 300 ? "🟡" : "🔴";
 
-      const cpuInfo = os.cpus()[0];
-      const networkStats = getNetworkStats();
-      const processStats = getProcessStats();
-      const diskInfo = await getDiskInfo();
-      
-      const currentDate = new Date().toLocaleString('en-US', { 
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true
+      const currentDate = new Date().toLocaleString("en-US", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
       });
 
-      let response = "";
+      const systemInfo = `
+╭───────── SYSTEM INFO ─────────╮
 
-      switch(args[0]?.toLowerCase()) {
-        case "hardware":
-          response = `
-╭────── HARDWARE INFO ──────╮
-💻 CPU Information
-❯ Model: ${cpuInfo.model}
-❯ Cores: ${os.cpus().length}
-❯ Speed: ${cpuInfo.speed}MHz
-❯ Load: ${getCPUUsage()}%
-❯ Architecture: ${os.arch()}
+💻 System Stats
+❯ CPU Usage: ${getCPUUsage()}%
+❯ CPU Model: ${cpuModel}
+❯ CPU Speed: ${cpuSpeed}
+❯ RAM Usage: ${memoryUsagePercent}%
+❯ Total RAM: ${formatBytes(totalMem)}
+❯ Used RAM: ${formatBytes(usedMem)}
+❯ Free RAM: ${formatBytes(freeMem)}
 
-💾 Memory Information
-❯ Total: ${formatBytes(totalMem)}
-❯ Used: ${formatBytes(usedMem)} (${memoryUsagePercent}%)
-❯ Free: ${formatBytes(freeMem)}
-❯ Swap: ${formatBytes(os.totalmem() - os.freemem())}
-╰───────────────────────╯`;
-          break;
+⚙️ OS Info
+❯ Platform: ${platform}
+❯ OS Release: ${osRelease}
 
-        case "software":
-          response = `
-╭────── SOFTWARE INFO ──────╮
-🖥️ Operating System
-❯ Platform: ${os.platform()}
-❯ Type: ${os.type()}
-❯ Release: ${os.release()}
-❯ Hostname: ${os.hostname()}
+🌐 Network Stats
+❯ IPs: ${networkInterfaces.map((iface) => iface.address).join(", ") || "N/A"}
+❯ Download Speed: ${networkSpeed.download}
+❯ Upload Speed: ${networkSpeed.upload}
+❯ Ping: ${networkSpeed.ping}
 
-⚙️ Runtime Environment
-❯ Node.js: ${processStats.nodeVersion}
-❯ NPM: ${processStats.npmVersion}
-❯ Process ID: ${processStats.pid}
-❯ Thread Pool: ${processStats.threads}
-╰───────────────────────╯`;
-          break;
-
-        case "network":
-          response = `
-╭────── NETWORK STATS ──────╮
-📡 Network Information
-❯ Hostname: ${os.hostname()}
-❯ Download: ${networkStats.rx}
-❯ Upload: ${networkStats.tx}
-❯ Ping: ${ping}ms ${pingStatus}
+📊 Usage Stats
 ❯ Uptime: ${uptimeFormatted}
-╰───────────────────────╯`;
-          break;
+❯ Total Users: ${userCount}
+❯ Total Threads: ${threadCount}
+❯ Command Response Time: ${ping}ms ${pingStatus}
 
-        case "process":
-          response = `
-╭────── PROCESS INFO ──────╮
-⚡ Process Statistics
-❯ PID: ${processStats.pid}
-❯ Memory Usage: ${processStats.memory}
-❯ Thread Pool Size: ${processStats.threads}
-❯ Active Users: ${userCount}
-❯ Active Threads: ${threadCount}
-❯ Uptime: ${uptimeFormatted}
-╰───────────────────────╯`;
-          break;
-
-        case "disk":
-          response = `
-╭────── STORAGE INFO ──────╮
-💽 Disk Information
-${diskInfo.map(d => `
-❯ Filesystem: ${d.fs}
-  Size: ${d.size}
-  Used: ${d.used} (${d.use}%)
-  Free: ${d.available}
-`).join('\n')}
-╰───────────────────────╯`;
-          break;
-
-        case "mini":
-          response = `📊 System: ${os.type()} | CPU: ${getCPUUsage()}% | RAM: ${memoryUsagePercent}% | Uptime: ${uptimeFormatted}`;
-          break;
-
-        default:
-          response = `
-╭──────── SYSTEM MONITOR ────────╮
-
-💻 Hardware Overview
-❯ CPU: ${cpuInfo.model}
-❯ Cores: ${os.cpus().length} (${getCPUUsage()}% Usage)
-❯ Memory: ${formatBytes(totalMem)} (${memoryUsagePercent}% Used)
-❯ Architecture: ${os.arch()}
-
-🖥️ Software Environment
-❯ OS: ${os.type()} ${os.release()}
-❯ Platform: ${os.platform()}
-❯ Node.js: ${processStats.nodeVersion}
-❯ NPM: ${processStats.npmVersion}
-
-📊 Performance Metrics
-❯ Process Memory: ${processStats.memory}
-❯ Thread Pool: ${processStats.threads}
-❯ Network DL/UL: ${networkStats.rx}/${networkStats.tx}
-❯ Ping: ${ping}ms ${pingStatus}
-
-📈 Usage Statistics
-❯ Active Users: ${userCount}
-❯ Active Threads: ${threadCount}
-❯ Uptime: ${uptimeFormatted}
-
-⏰ System Time
+🕒 Current Time
 ❯ ${currentDate}
 
-╰─────────────────────────────╯`;
-      }
+╰────────────────────────────╯`;
 
-      await api.editMessage(response, loadingMessage.messageID);
-      
+      await api.editMessage(systemInfo, checkingMessage.messageID);
     } catch (error) {
-      console.error("System Monitor Error:", error);
-      api.sendMessage(
-        "⚠️ Error while gathering system information:\n" + error.message, 
-        event.threadID
-      );
+      console.error("Uptime Error:", error);
+      api.sendMessage(`⚠️ Failed to fetch system info:\n${error.message}`, event.threadID);
     }
-  }
+  },
 };
