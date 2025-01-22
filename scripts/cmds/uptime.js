@@ -1,4 +1,4 @@
-.cmd install uptime.js const os = require("os");
+const os = require("os");
 
 const startTime = new Date();
 
