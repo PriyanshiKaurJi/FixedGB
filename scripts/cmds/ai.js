@@ -3,7 +3,7 @@ const axios = require('axios');
 let PriyaPrefix = [
   'queen',
   'ai',
-  '.ai', // Add Your Prefix Here
+  '.ai',
 ];
 
 const axiosInstance = axios.create();
@@ -24,7 +24,6 @@ module.exports = {
   onChat: async function ({ message, event, args, api, threadID, messageID }) {
     const command = args[0]?.toLowerCase();
 
-    // Help Command
     if (command === 'help') {
       const helpMessage = `
       🌟 *AI Commands* 🌟
@@ -37,7 +36,6 @@ module.exports = {
       return;
     }
 
-    // Add New Prefix Command
     if (command === 'addprefix') {
       const newPrefix = args[1];
       if (newPrefix && !PriyaPrefix.includes(newPrefix)) {
