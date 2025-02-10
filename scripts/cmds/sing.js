@@ -1,131 +1,84 @@
+const fetch = require("node-fetch");
 const axios = require("axios");
-const fs = require("fs-extra");
+const fs = require("fs");
 const path = require("path");
-
-const SPOTIFY_CLIENT_ID = "41dd52e608ee4c4ba8b196b943db9f73";
-const SPOTIFY_CLIENT_SECRET = "5c7b438712b04d0a9fe2eaae6072fa16";
-const HUNGDEV_API_KEY = "YdXxx4rIT0";
+const ytSearch = require("yt-search");
 
 module.exports = {
-  config: {
-    name: "spotify",
-    aliases: ["sing"],
-    version: "3.2.0",
-    author: "Priyanshi Kaur",
-    role: 0,
-    countDown: 5,
-    shortDescription: { en: "Search and download Spotify music" },
-    longDescription: {
-      en: "Search for songs using Spotify and download them directly as MP3."
+    config: {
+        name: "sing",
+        version: "1.0",
+        author: "Priyanshi Kaur",
+        countDown: 5,
+        role: 0,
+        description: {
+            en: "Download YouTube songs from keyword search"
+        },
+        category: "media",
+        guide: { en: "{pn} <song name> [audio/video]" },
     },
-    category: "music",
-    guide: {
-      en: "{pn} trackName\n{pn} artist ArtistName"
-    }
-  },
 
-  ensureCacheFolder: async function () {
-    const cacheDir = path.join(__dirname, "cache");
-    if (!fs.existsSync(cacheDir)) await fs.mkdir(cacheDir, { recursive: true });
-    return cacheDir;
-  },
+    onStart: async function ({ api, message, event, args }) {
+        let songName, type;
 
-  getSpotifyToken: async function () {
-    const tokenRes = await axios.post(
-      "https://accounts.spotify.com/api/token",
-      new URLSearchParams({ grant_type: "client_credentials" }).toString(),
-      {
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64")}`,
-          "Content-Type": "application/x-www-form-urlencoded"
+        if (args.length > 1 && (args[args.length - 1] === "audio" || args[args.length - 1] === "video")) {
+            type = args.pop();
+            songName = args.join(" ");
+        } else {
+            songName = args.join(" ");
+            type = "audio";
         }
-      }
-    );
-    return tokenRes.data.access_token;
-  },
 
-  searchSpotifyTrack: async function (trackName, token) {
-    const searchRes = await axios.get("https://api.spotify.com/v1/search", {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { q: trackName, type: "track", limit: 1 }
-    });
-    const tracks = searchRes.data.tracks.items;
-    if (!tracks.length) throw new Error("Track not found.");
-    return tracks[0];
-  },
+        if (!songName) {
+            return message.reply("Please provide a song name!");
+        }
 
-  searchSpotifyArtist: async function (artistName, token) {
-    const searchRes = await axios.get("https://api.spotify.com/v1/search", {
-      headers: { Authorization: `Bearer ${token}` },
-      params: { q: artistName, type: "artist", limit: 1 }
-    });
-    const artists = searchRes.data.artists.items;
-    if (!artists.length) throw new Error("Artist not found.");
-    return artists[0];
-  },
+        api.setMessageReaction("⌛", event.messageID, () => { }, true);
 
-  downloadFromHungDev: async function (url) {
-    const apiUrl = `https://hungdev.id.vn/medias/down-aio?url=${encodeURIComponent(url)}&apikey=${HUNGDEV_API_KEY}`;
-    
-    const response = await axios.get(apiUrl);
-    if (!response.data.success) throw new Error("Failed to download.");
-    return response.data.data.medias.find(media => media.extension === "mp3");
-  },
+        try {
+            const processingMessage = await message.reply("✅ Processing your request. Please wait...");
 
-  onStart: async function ({ api, event, args }) {
-    try {
-      if (!args.length) return api.sendMessage("Please provide a song name or artist name.", event.threadID, event.messageID);
+            const searchResults = await ytSearch(songName);
+            if (!searchResults || !searchResults.videos.length) {
+                throw new Error("No results found for your search query.");
+            }
 
-      const cacheDir = await this.ensureCacheFolder();
-      const spotifyToken = await this.getSpotifyToken();
+            const topResult = searchResults.videos[0];
+            const videoId = topResult.videoId;
 
-      // **Handle Spotify Artist Information**
-      if (args[0].toLowerCase() === "artist") {
-        const artistName = args.slice(1).join(" ").trim();
-        if (!artistName) return api.sendMessage("Please provide an artist name.", event.threadID, event.messageID);
+            const apiKey = "priyansh-here";
+            const apiUrl = `https://priyansh-ai.onrender.com/youtube?id=${videoId}&type=${type}&apikey=${apiKey}`;
 
-        const artist = await this.searchSpotifyArtist(artistName, spotifyToken);
-        const artistInfo = `
-🎤 Artist: ${artist.name}
-👥 Followers: ${artist.followers.total.toLocaleString()}
-🎵 Genres: ${artist.genres.join(", ") || "N/A"}
-🔥 Popularity: ${artist.popularity}%
-🔗 Spotify URL: ${artist.external_urls.spotify}`.trim();
+            const downloadResponse = await axios.get(apiUrl);
+            const downloadUrl = downloadResponse.data.downloadUrl;
 
-        return api.sendMessage(artistInfo, event.threadID, event.messageID);
-      }
+            const response = await fetch(downloadUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch song. Status code: ${response.status}`);
+            }
 
-      // **Handle Spotify Track Download**
-      const trackQuery = args.join(" ");
-      const track = await this.searchSpotifyTrack(trackQuery, spotifyToken);
-      const downloadInfo = await this.downloadFromHungDev(track.external_urls.spotify);
+            const filename = `${topResult.title}.${type === "audio" ? "mp3" : "mp4"}`;
+            const downloadPath = path.join(__dirname, filename);
 
-      if (!downloadInfo) return api.sendMessage("Spotify track download failed.", event.threadID, event.messageID);
+            const songBuffer = await response.buffer();
+            fs.writeFileSync(downloadPath, songBuffer);
 
-      // Stream and send the MP3 file
-      const filePath = path.join(cacheDir, `${Date.now()}.mp3`);
-      const downloadStream = await axios({
-        url: downloadInfo.url,
-        method: "GET",
-        responseType: "stream"
-      });
+            await message.reply({
+                body: `🎵 Title: ${topResult.title}\n\nHere is your ${type === "audio" ? "audio" : "video"} 🎧`,
+                attachment: fs.createReadStream(downloadPath)
+            });
 
-      downloadStream.data.pipe(fs.createWriteStream(filePath)).on("finish", async () => {
-        await api.sendMessage(
-          {
-            attachment: fs.createReadStream(filePath),
-            body: `🎵 Spotify Song: ${track.name}\n👤 Artist: ${track.artists.map(a => a.name).join(", ")}\n🔗 Spotify Link: ${track.external_urls.spotify}`
-          },
-          event.threadID,
-          event.messageID
-        );
+            fs.unlinkSync(downloadPath);
+            api.unsendMessage(processingMessage.messageID);
+            api.setMessageReaction("✅", event.messageID, () => { }, true);
 
-        await fs.remove(filePath);
-      });
+        } catch (error) {
+            console.error(`Failed to download and send song:`, error);
+            message.reply(`❌ Error: ${error.message}`);
+            api.setMessageReaction("❌", event.messageID, () => { }, true);
+        }
+    },
 
-    } catch (error) {
-      console.error(error);
-      api.sendMessage(`❌ Error: ${error.message}`, event.threadID, event.messageID);
+    onReply: async function ({ api, message, event, Reply, args }) {
     }
-  }
 };
